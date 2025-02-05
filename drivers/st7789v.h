@@ -4,6 +4,7 @@
 #include <hardware/spi.h>
 #include <hardware/dma.h>
 #include <pico/sem.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <util/util.h>
@@ -27,15 +28,15 @@
 
 /******************** DISPLAY_COMMANDS ********************/
 
-typedef enum st7789v_command_t
+typedef enum st7789v_command_t: uint8_t
 {
     COMMAND_NO_OPERATION                                        = 0x00,
     COMMAND_SOFTWARE_RESET                                      = 0x01,
     COMMAND_READ_DISPLAY_ID                                     = 0x04,
     COMMAND_READ_DISPLAY_STATUS                                 = 0x09,
     COMMAND_READ_DISPLAY_POWER                                  = 0x0A,
-    COMMAND_READ_MEMORY_ACCESS_CONTROL                          = 0x0B,
-    COMMAND_READ_COLOR_PIXEL_FORMAT                             = 0x0C,
+    COMMAND_READ_DISPLAY_MEMORY_ACCESS_CONTROL                  = 0x0B,
+    COMMAND_READ_DISPLAY_COLOR_PIXEL_FORMAT                     = 0x0C,
     COMMAND_READ_DISPLAY_IMAGE_MODE                             = 0x0D,
     COMMAND_READ_DISPLAY_SIGNAL_MODE                            = 0x0E,
     COMMAND_READ_DISPLAY_SELF_DIAGNOSTIC                        = 0x0F,
@@ -78,6 +79,141 @@ typedef enum st7789v_command_t
     COMMAND_READ_ID_2                                           = 0xDB,
     COMMAND_READ_ID_3                                           = 0xDC
 } st7789v_command_t;
+
+typedef enum st7789v_color_order_t: uint8_t
+{
+    COLOR_ORDER_RGB = 0x00,
+    COLOR_ORDER_BGR = 0x01
+} st7789v_color_order_t;
+
+typedef enum st7789v_pixel_format_t: uint8_t
+{
+    COLOR_FORMAT_12BPP          = 0b011,
+    COLOR_FORMAT_16BPP          = 0b101,
+    COLOR_FORMAT_18BPP          = 0b110,
+    COLOR_FORMAT_16M_TRUNCATED  = 0b111
+} st7789v_pixel_format_t;
+
+typedef enum st7789v_rgb_interface_format: uint8_t
+{
+    RGB_INTERFACE_FORMAT_65K    = 0b101,
+    RGB_INTERFACE_FORMAT_262K   = 0b110
+} st7789v_rgb_interface_format_t;
+
+typedef enum st7789v_tearing_effect_mode_t: uint8_t
+{
+    TEARING_EFFECT_MODE_VBLANK_ONLY       = 0x00,
+    TEARING_EFFECT_MODE_VBLANK_AND_HBLANK = 0x01,
+} st7789v_tearing_effect_mode_t;
+
+typedef enum st7789v_gamma_curve_t: uint8_t
+{
+    GAMMA_CURVE_2_DOT_2 = 0x01,
+    GAMMA_CURVE_1_DOT_8 = 0x02,
+    GAMMA_CURVE_2_DOT_5 = 0x04,
+    GAMMA_CURVE_1_DOT_0 = 0x08
+} st7789v_gamma_curve_t;
+
+typedef union st7789v_display_status_t
+{
+    uint32_t raw_value;
+
+    struct {
+        uint8_t                                                     : 5;
+        st7789v_tearing_effect_mode_t   tearing_effect_mode         : 1;
+        st7789v_gamma_curve_t           gamma_curve                 : 3;
+        bool                            tearing_effect_line         : 1;
+        bool                            display_on                  : 1;
+        uint8_t                                                     : 2;
+        bool                            color_inversion             : 1;
+        uint8_t                                                     : 2;
+        bool                            display_normal_mode         : 1;
+        bool                            sleep_out                   : 1;
+        bool                            partial_mode                : 1;
+        bool                            idle_mode                   : 1;
+        st7789v_pixel_format_t          pixel_format                : 3;
+        uint8_t                                                     : 2;
+        bool                            horizontal_order_rtl        : 1;
+        bool                            bgr_pixels                  : 1;
+        bool                            scan_address_increment      : 1;
+        bool                            row_column_exchange         : 1;
+        bool                            column_address_decrement    : 1;
+        bool                            row_address_decrement       : 1;
+        bool                            voltage_booster_enabled     : 1;
+    } __attribute__((packed));
+} st7789v_display_status_t;
+
+typedef union st7789v_memory_access_control_t {
+    uint8_t raw_value;
+
+    struct {
+        uint8_t                                 : 2;
+        bool        horizontal_order_rtl        : 1;
+        bool        bgr_pixels                  : 1;
+        bool        scan_address_increment      : 1;
+        bool        row_column_exchange         : 1;
+        bool        column_address_decrement    : 1;
+        bool        row_address_decrement       : 1;
+    } __attribute__((packed));
+} st7789v_memory_access_control_t;
+
+typedef union st7789v_power_mode_t {
+    uint8_t raw_value;
+
+    struct {
+        uint8_t                             : 2;
+        bool        display_on              : 1;
+        bool        display_normal_mode     : 1;
+        bool        sleep_out               : 1;
+        bool        partial_mode            : 1;
+        bool        idle_mode               : 1;
+        bool        voltage_booster_enabled : 1;
+    } __attribute__((packed));
+} st7789v_power_mode_t;
+
+typedef union st7789v_interface_pixel_format {
+    uint8_t raw_value;
+
+    struct {
+        uint8_t                                         : 1;
+        st7789v_rgb_interface_format_t  rgb_format      : 3;
+        uint8_t                                         : 1;
+        st7789v_pixel_format_t          pixel_format    : 3;
+    } __attribute__((packed));
+} st7789v_interface_pixel_format;
+
+
+typedef union st7789v_image_mode_t {
+    uint8_t raw_value;
+
+    struct {
+        st7789v_gamma_curve_t   gamma_curve         : 3;
+        uint8_t                                     : 2;
+        bool                    color_inversion     : 1;
+        uint8_t                                     : 1;
+        bool                    vertical_scrolling  : 1;
+    } __attribute__((packed));
+} st7789v_image_mode_t;
+
+typedef union st7789v_signal_mode_t {
+    uint8_t raw_value;
+
+    struct {
+        uint8_t                                             : 6;
+        st7789v_tearing_effect_mode_t   tearing_effect_mode : 1;
+        bool                            tearing_effect_line : 1;
+    } __attribute__((packed));
+} st7789v_signal_mode_t;
+
+typedef union st7789v_display_self_diagnostic_t {
+    uint8_t raw_value;
+
+    struct {
+        uint8_t                             : 6;
+        bool    register_loading            : 1;
+        bool    functionality_detection     : 1;
+    } __attribute__((packed));
+} st7789v_display_self_diagnostic_t;
 
 /**
  * Initialize the display on the pins defined above, using pico's Serial interface and
@@ -186,7 +322,7 @@ external error_t st7789v_send_command_sync(
  * - ENODEV: if the display is not plugged in, or unavailable
  * - EBUSY: if there is an operation ongoing in this display
  */
-error_t st7789v_display_no_operation(void);
+external error_t st7789v_display_no_operation(void);
 
 /**
  * Reset the display
@@ -195,7 +331,7 @@ error_t st7789v_display_no_operation(void);
  * - ENODEV: if the display is not plugged in, or unavailable
  * - EBUSY: if there is an operation ongoing in this display
  */
-error_t st7789v_display_software_reset(void);
+external error_t st7789v_display_software_reset(void);
 
 /**
  * Read the display id (it should match with ST7789V_DISPLAY_ID)
@@ -205,7 +341,77 @@ error_t st7789v_display_software_reset(void);
  * - EBUSY: if there is an operation ongoing in this display
  * - The display id
  */
-uint32_t st7789v_display_read_id(void);
+external uint32_t st7789v_display_read_id(void);
+
+/**
+ * Read the display status
+ *
+ * RETURN VALUE
+ * - ENODEV: if the display is not plugged in, or unavailable
+ * - EBUSY: if there is an operation ongoing in this display
+ * - The raw display status
+ */
+external uint32_t st7789v_display_read_status(st7789v_display_status_t *status);
+
+/**
+ * Read the display power mode
+ *
+ * RETURN VALUE
+ * - ENODEV: if the display is not plugged in, or unavailable
+ * - EBUSY: if there is an operation ongoing in this display
+ * - The raw display power status value
+ */
+external byte st7789v_display_read_power_mode(st7789v_power_mode_t *pwrmode);
+
+/**
+ * Read the display memory access control
+ *
+ * RETURN VALUE
+ * - ENODEV: if the display is not plugged in, or unavailable
+ * - EBUSY: if there is an operation ongoing in this display
+ * - The raw display memory access control value
+ */
+external byte st7789v_display_read_memory_access_control(st7789v_memory_access_control_t *madctl);
+
+/**
+ * Read the display memory access control
+ *
+ * RETURN VALUE
+ * - ENODEV: if the display is not plugged in, or unavailable
+ * - EBUSY: if there is an operation ongoing in this display
+ * - The raw display pixel format value
+ */
+external byte st7789v_display_read_pixel_format(st7789v_interface_pixel_format *pixfmt);
+
+/**
+ * Read the display image mode
+ *
+ * RETURN VALUE
+ * - ENODEV: if the display is not plugged in, or unavailable
+ * - EBUSY: if there is an operation ongoing in this display
+ * - The raw display image mode value
+ */
+external byte st7789v_display_read_image_mode(st7789v_image_mode_t *img_mode);
+
+/**
+ * Read the display signal mode
+ *
+ * RETURN VALUE
+ * - ENODEV: if the display is not plugged in, or unavailable
+ * - EBUSY: if there is an operation ongoing in this display
+ * - The raw display signal mode value
+ */
+external byte st7789v_display_read_signal_mode(st7789v_signal_mode_t *signal_mode);
+
+/**
+ * Read the display self diagnostic
+ *
+ * RETURN VALUE
+ * - ENODEV: if the display is not plugged in, or unavailable
+ * - EBUSY: if there is an operation ongoing in this display
+ * - The raw display self diagnostic value
+ */
+external byte st7789v_display_read_self_diagnostic(st7789v_display_self_diagnostic_t *diag);
 
 /**
  * Deinitializes this display

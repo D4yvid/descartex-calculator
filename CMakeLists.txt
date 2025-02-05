@@ -39,7 +39,7 @@ pico_enable_stdio_usb(scicalculator ENABLED)
 
 target_link_libraries(scicalculator pico_stdlib hardware_spi hardware_dma)
 
-target_compile_options(scicalculator PUBLIC "-fms-extensions" "-Wno-microsoft-anon-tag")
+target_compile_options(scicalculator PUBLIC "-fms-extensions" "-Wno-packed-bitfield-compat")
 
 target_include_directories(scicalculator PRIVATE ${PROJECT_SOURCE_DIR} ${CMAKE_CURRENT_LIST_DIR})
 

@@ -3,8 +3,11 @@
 #include <hardware/gpio.h>
 #include <hardware/irq.h>
 #include <hardware/spi.h>
+#include <hardware/structs/spi.h>
+#include <pico.h>
 #include <pico/lock_core.h>
 #include <pico/mutex.h>
+#include <pico/platform/compiler.h>
 #include <pico/sem.h>
 #include <pico/sync.h>
 #include <pico/time.h>
@@ -29,7 +32,7 @@ internal bool is_busy = false;
 internal mutex_t communication_lock;
 internal mutex_t busy_lock;
 
-internal void __not_in_flash_func(st7789v_dma_handler)(void) {
+internal void __isr st7789v_dma_irq_handler(void) {
     if (!dma_channel_get_irq0_status(dma_data_channel)) {
         // This IRQ was not caused by any of our channels
         DRV_LOG("irq0 received from unknown channel");
@@ -44,6 +47,10 @@ internal void __not_in_flash_func(st7789v_dma_handler)(void) {
 
         dma_operation_completion_signal = NULL;
     }
+
+    // FIXME: if i do not read this Data Register of the SPI after the DMA operation,
+    //        it's not going to write properly if the transaction is only one byte.
+    uint32_t value = spi_get_hw(serial)->dr;
     
     mutex_exit(&busy_lock);
 }
@@ -52,6 +59,9 @@ internal void st7789v_dummy_cycle() {
     if (dma_channel_is_busy(dma_data_channel)) {
         return;
     }
+
+    while (spi_is_busy(serial))
+        tight_loop_contents();
 
     gpio_set_function(ST7789V_PIN_SCK, GPIO_FUNC_SIO);
 
@@ -195,8 +205,11 @@ error_t st7789v_sync_dma_operation() {
     if (!st7789v_is_dma_busy()) {
         return 0;
     }
-    
+
     dma_channel_wait_for_finish_blocking(dma_data_channel);
+
+    while (spi_is_busy(serial))
+        tight_loop_contents();
 
     // Wait the IRQ to unlock this mutex, so we are 100% sure it's sent and the
     // IRQ handler executed and released the semaphore if provided.
@@ -207,7 +220,6 @@ error_t st7789v_sync_dma_operation() {
 }
 
 error_t st7789v_init() {
-
     // Find a free DMA channel, if it's not found, error out
     dma_data_channel = dma_claim_unused_channel(false);
 
@@ -243,9 +255,10 @@ error_t st7789v_init() {
     DRV_LOG("  reading: %d baud rate", ST7789V_READING_BAUDRATE);
     DRV_LOG("  writing: %d baud rate", ST7789V_WRITING_BAUDRATE);
 
+    // Enable DMA interrupts
     dma_channel_set_irq0_enabled(dma_data_channel, true);
 
-    irq_set_exclusive_handler(DMA_IRQ_0, st7789v_dma_handler);
+    irq_set_exclusive_handler(DMA_IRQ_0, st7789v_dma_irq_handler);
     irq_set_enabled(DMA_IRQ_0, true);
 
     is_plugged = true;
@@ -267,13 +280,17 @@ error_t st7789v_init() {
     DRV_LOG("found Sitronix ST7789V display controller on serial:");
 
     DRV_LOG(
-        "  Pins: tx=%d,rx=%d,cs=%d,sck=%d,dc=%d",
+        "  pins: tx=%d,rx=%d,cs=%d,sck=%d,dc=%d",
         ST7789V_PIN_MOSI,
         ST7789V_PIN_MISO,
         ST7789V_PIN_CS,
         ST7789V_PIN_SCK,
         ST7789V_PIN_DC
     );
+
+    st7789v_display_status_t status = { 0 };
+
+    st7789v_display_read_status(&status);
 
     // TODO: init sequence here:
     //       - display_disable_sleep_mode
@@ -288,8 +305,7 @@ error_t st7789v_init() {
     return 0;
 }
 
-error_t st7789v_deinit(void)
-{
+error_t st7789v_deinit(void) {
     if (dma_data_channel >= 0) {
         DRV_LOG("deinitializing DMA channel %d", dma_data_channel);
 
@@ -333,22 +349,18 @@ error_t st7789v_send_command_sync(
 
     byte command_byte = command & 0xFF;
 
-    st7789v_begin_comm();
-
     st7789v_begin_command();
-    st7789v_write_sync(&command_byte, 1);
+        st7789v_write_sync(&command_byte, 1);
     st7789v_end_command();
 
     if (parameters != NULL && parameter_count > 0) {
         st7789v_write_sync(parameters, parameter_count);
     }
 
-    st7789v_end_comm();
-
     return 0;
 }
 
-/******************** HIGH LEVEL API ********************/
+/******************** "HIGH" LEVEL API ********************/
 
 error_t st7789v_display_no_operation() {
     if (!is_plugged) {
@@ -359,7 +371,11 @@ error_t st7789v_display_no_operation() {
         return -EBUSY;
     }
 
-    st7789v_send_command_sync(COMMAND_NO_OPERATION, NULL, 0);
+    st7789v_begin_comm();
+
+        st7789v_send_command_sync(COMMAND_NO_OPERATION, NULL, 0);
+
+    st7789v_end_comm();
 
     return 0;
 }
@@ -373,7 +389,11 @@ error_t st7789v_display_software_reset() {
         return -EBUSY;
     }
 
-    st7789v_send_command_sync(COMMAND_SOFTWARE_RESET, NULL, 0);
+    st7789v_begin_comm();
+
+        st7789v_send_command_sync(COMMAND_SOFTWARE_RESET, NULL, 0);
+
+    st7789v_end_comm();
 
     return 0;
 }
@@ -387,32 +407,221 @@ uint32_t st7789v_display_read_id() {
         return -EBUSY;
     }
 
-    // This command is special, because it needs an dummy cycle,
+    // This command is special, because it needs a dummy cycle,
     // so we're writing this directly instead of using `st7789v_send_command_sync`
 
-    byte buffer[4] = {COMMAND_READ_DISPLAY_ID, 0x00, 0x00, 0x00}; // Command + 3 dummy bytes
+    byte buffer[4] = {COMMAND_READ_DISPLAY_ID, 0x00, 0x00, 0x00};
 
     st7789v_begin_comm();
 
-    st7789v_begin_command();
-    st7789v_write_sync(buffer, 1);
-    st7789v_end_command();
+        st7789v_begin_command();
 
-    st7789v_dummy_cycle();
-    st7789v_read_sync(&buffer[1], 3);
+            st7789v_write_sync(buffer, 1);
+        
+        st7789v_end_command();
+
+        st7789v_dummy_cycle();
+        st7789v_read_sync(&buffer[1], 3);
 
     st7789v_end_comm();
 
     return buffer[1] << 16 | buffer[2] << 8 | buffer[3];
 }
 
-// TODO: COMMAND_READ_DISPLAY_STATUS
-// TODO: COMMAND_READ_DISPLAY_POWER
-// TODO: COMMAND_READ_MEMORY_ACCESS_CONTROL
-// TODO: COMMAND_READ_COLOR_PIXEL_FORMAT
-// TODO: COMMAND_READ_DISPLAY_IMAGE_MODE
-// TODO: COMMAND_READ_DISPLAY_SIGNAL_MODE
-// TODO: COMMAND_READ_DISPLAY_SELF_DIAGNOSTIC
+uint32_t st7789v_display_read_status(st7789v_display_status_t *status) {
+    if (!is_plugged) {
+        return -ENODEV;
+    }
+
+    if (st7789v_is_dma_busy()) {
+        return -EBUSY;
+    }
+
+    // This command is special, because it needs a dummy cycle,
+    // so we're writing this directly instead of using `st7789v_send_command_sync`
+
+    byte buffer[4] = { COMMAND_READ_DISPLAY_STATUS, 0x00, 0x00, 0x00 };
+
+    st7789v_begin_comm();
+
+        st7789v_begin_command();
+
+            st7789v_write_sync(buffer, 1);
+        
+        st7789v_end_command();
+
+        st7789v_dummy_cycle();
+        st7789v_read_sync(buffer, 4);
+
+    st7789v_end_comm();
+
+    uint32_t raw_value = buffer[0] << 24 | buffer[1] << 16 | buffer[2] << 8 | buffer[3];
+
+    if (status != NULL) {
+        status->raw_value = raw_value;
+    }
+
+    return raw_value;
+}
+
+byte st7789v_display_read_power_mode(st7789v_power_mode_t *pwrmode) {
+    if (!is_plugged) {
+        return -ENODEV;
+    }
+
+    if (st7789v_is_dma_busy()) {
+        return -EBUSY;
+    }
+
+    byte raw_status = 0x00;
+
+    st7789v_begin_comm();
+
+        st7789v_send_command_sync(COMMAND_READ_DISPLAY_POWER, NULL, 0);
+        
+        st7789v_read_sync(&raw_status, 1);
+
+    st7789v_end_comm();
+
+    if (pwrmode != NULL) {
+        pwrmode->raw_value = raw_status;
+    }
+
+    return raw_status;
+}
+
+
+byte st7789v_display_read_memory_access_control(st7789v_memory_access_control_t *madctl) {
+    if (!is_plugged) {
+        return -ENODEV;
+    }
+
+    if (st7789v_is_dma_busy()) {
+        return -EBUSY;
+    }
+
+    byte raw_value = 0x00;
+
+    st7789v_begin_comm();
+
+        st7789v_send_command_sync(COMMAND_READ_DISPLAY_MEMORY_ACCESS_CONTROL, NULL, 0);
+
+        st7789v_read_sync(&raw_value, 1);
+
+    st7789v_end_comm();
+
+    if (madctl != NULL) {
+        madctl->raw_value = raw_value;
+    }
+
+    return raw_value;
+}
+
+byte st7789v_display_read_pixel_format(st7789v_interface_pixel_format *pixfmt) {
+    if (!is_plugged) {
+        return -ENODEV;
+    }
+
+    if (st7789v_is_dma_busy()) {
+        return -EBUSY;
+    }
+
+    byte raw_value = 0x00;
+
+    st7789v_begin_comm();
+
+        st7789v_send_command_sync(COMMAND_READ_DISPLAY_COLOR_PIXEL_FORMAT, NULL, 0);
+        
+        st7789v_read_sync(&raw_value, 1);
+
+    st7789v_end_comm();
+
+    if (pixfmt != NULL) {
+        pixfmt->raw_value = raw_value;
+    }
+
+    return raw_value;
+}
+
+byte st7789v_display_read_image_mode(st7789v_image_mode_t *img_mode) {
+    if (!is_plugged) {
+        return -ENODEV;
+    }
+
+    if (st7789v_is_dma_busy()) {
+        return -EBUSY;
+    }
+
+    byte raw_value = 0x00;
+
+    st7789v_begin_comm();
+
+        st7789v_send_command_sync(COMMAND_READ_DISPLAY_IMAGE_MODE, NULL, 0);
+
+        st7789v_read_sync(&raw_value, 1);
+
+    st7789v_end_comm();
+
+    if (img_mode) {
+        img_mode->raw_value = raw_value;
+    }
+
+    return raw_value;
+}
+
+byte st7789v_display_read_signal_mode(st7789v_signal_mode_t *signal_mode) {
+    if (!is_plugged) {
+        return -ENODEV;
+    }
+
+    if (st7789v_is_dma_busy()) {
+        return -EBUSY;
+    }
+
+    byte raw_value = 0x00;
+
+    st7789v_begin_comm();
+
+        st7789v_send_command_sync(COMMAND_READ_DISPLAY_SIGNAL_MODE, NULL, 0);
+
+        st7789v_read_sync(&raw_value, 1);
+
+    st7789v_end_comm();
+
+    if (signal_mode) {
+        signal_mode->raw_value = raw_value;
+    }
+
+    return raw_value;
+}
+
+byte st7789v_display_read_self_diagnostic(st7789v_display_self_diagnostic_t *diag)
+{
+    if (!is_plugged) {
+        return -ENODEV;
+    }
+
+    if (st7789v_is_dma_busy()) {
+        return -EBUSY;
+    }
+
+    byte raw_value = 0x00;
+
+    st7789v_begin_comm();
+
+        st7789v_send_command_sync(COMMAND_READ_DISPLAY_SELF_DIAGNOSTIC, NULL, 0);
+
+        st7789v_read_sync(&raw_value, 1);
+
+    st7789v_end_comm();
+
+    if (diag) {
+        diag->raw_value = raw_value;
+    }
+
+    return raw_value;
+}
+
 // TODO: COMMAND_SLEEP_IN
 // TODO: COMMAND_SLEEP_OUT
 // TODO: COMMAND_PARTIAL_DISPLAY_MODE_ON
