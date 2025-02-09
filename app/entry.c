@@ -4,5 +4,8 @@
 
 bool app_main()
 {
-    for (;;) tight_loop_contents();
+    // TODO: do something
+
+    for (;;)
+        tight_loop_contents();
 }
