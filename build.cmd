@@ -11,7 +11,7 @@ cmake --build .\build\
 ECHO [INFO] Loading new firmware into RPI Pico
 REM Flash the ELF image into the Pico
 :loop
-picotool load -F -x .\build\scicalculator.elf >nul || (
+picotool load -F -x .\build\descartex.elf >nul || (
     GOTO loop
 )
 
