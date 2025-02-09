@@ -2,4 +2,7 @@ build/
 .cache/
 .vscode/
 
+# VIM swap files
+*.swp
+
 compile_commands.json
