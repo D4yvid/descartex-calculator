@@ -11,7 +11,7 @@
 #include <util/types.h>
 #include <errno.h>
 
-/******************** CONNECTION SETTINGS ********************/
+/******************** CONNECTION SETTINGS *************************/
 
 // Work-around for:
 // "warning: 'xxxxx' is narrower than values of its type"
@@ -30,14 +30,18 @@
 #define ST7789V_PIN_MOSI        19
 #define ST7789V_PIN_DC          20
 
+/********************* DISPLAY CONSTANTS **************************/
 #define ST7789V_DISPLAY_ID      0x858552
+#define ST7789V_DISPLAY_WIDTH   319
+#define ST7789V_DISPLAY_HEIGHT  239
 
 typedef enum st7789v_error_t
 {
     ENODISPLAYCONNECTED = 0x01,
-    EDISPLAYBUSY            = 0x02,
+    EDISPLAYBUSY        = 0x02,
     EINVALIDSTATE       = 0x03,
-    ENODMAAVAILABLE     = 0x04
+    ENODMAAVAILABLE     = 0x04,
+    ENOTINRANGE         = 0x05
 } st7789v_error_t;
 
 /**
@@ -79,15 +83,22 @@ typedef enum st7789v_command_t: uint8_t
     /** implemented in st7789v_display_sleep_out */
     COMMAND_SLEEP_OUT                                           = 0x11,
     /** implemented in st7789v_display_set_normal_mode_state(false) */
-    COMMAND_PARTIAL_DISPLAY_MODE_ON                             = 0x12,
+    COMMAND_PARTIAL_DISPLAY_MODE_ON                        = 0x12,
     /** implemented in st7789v_display_set_normal_mode_state(true) */
     COMMAND_NORMAL_DISPLAY_MODE_ON                              = 0x13,
+    /** implemented in st7789v_display_enable_inversion(false) */
     COMMAND_DISPLAY_INVERSION_OFF                               = 0x20,
+    /** implemented in st7789v_display_enable_inversion(true) */
     COMMAND_DISPLAY_INVERSION_ON                                = 0x21,
+    /** implemented in st7789v_display_set_gamma_correction_curve */
     COMMAND_GAMMA_SET                                           = 0x26,
+    /** implemented in st7789v_display_turn_off */
     COMMAND_DISPLAY_OFF                                         = 0x28,
+    /** implemented in st7789v_display_turn_on */
     COMMAND_DISPLAY_ON                                          = 0x29,
+    /** implemented in st7789v_display_set_column_address_window */
     COMMAND_COLUMN_ADDRESS_SET                                  = 0x2A,
+    /** implemented in st7789v_display_set_row_address_window */
     COMMAND_ROW_ADDRESS_SET                                     = 0x2B,
     COMMAND_MEMORY_WRITE                                        = 0x2C,
     COMMAND_MEMORY_READ                                         = 0x2E,
@@ -420,32 +431,57 @@ typedef union st7789v_power_mode_t {
  * 
  * Read this structure from the display by using `st7789v_display_read_pixel_format`.
  */
-typedef union st7789v_interface_pixel_format {
+typedef union st7789v_interface_pixel_format_t {
     uint8_t raw_value;
 
     struct {
         uint8_t                                         : 1;
+
+        /**
+         * How many colors the display is using to show the image
+         */
         st7789v_rgb_interface_format_t  rgb_format      : 3;
+
         uint8_t                                         : 1;
+
+        /**
+         * The pixel format being used by the display (or depth)
+         */
         st7789v_pixel_format_t          pixel_format    : 3;
     } __attribute__((packed));
-} st7789v_interface_pixel_format;
+} st7789v_interface_pixel_format_t;
 
 /**
- * 
+ * The image mode which the display is using
+ *
+ * Read this structure from the display by using `st7789v_display_read_image_mode`
  */
 typedef union st7789v_image_mode_t {
     uint8_t raw_value;
 
     struct {
+        /**
+         * The gamma curve the display is using
+         */
         st7789v_gamma_curve_t   gamma_curve         : 3;
         uint8_t                                     : 2;
+
+        /**
+         * If the display has color inversion enabled
+         */
         bool                    color_inversion     : 1;
         uint8_t                                     : 1;
+        
+        /**
+         * If vertical scrolling is being used by the display
+         */
         bool                    vertical_scrolling  : 1;
     } __attribute__((packed));
 } st7789v_image_mode_t;
 
+/**
+ *
+ */
 typedef union st7789v_signal_mode_t {
     uint8_t raw_value;
 
@@ -643,7 +679,7 @@ external byte st7789v_display_read_memory_access_control(st7789v_memory_access_c
  * Read the display memory access control
  *
  * PARAMETERS
- * - pixfmt: a pointer to an `st7789v_interface_pixel_format` structure where
+ * - pixfmt: a pointer to an `st7789v_interface_pixel_format_t` structure where
  *           this function will store the pixel format.
  *
  * RETURN VALUE
@@ -651,7 +687,7 @@ external byte st7789v_display_read_memory_access_control(st7789v_memory_access_c
  * - EDISPLAYBUSY: if the display is busy with an DMA or reset operation
  * - The raw display pixel format value
  */
-external byte st7789v_display_read_pixel_format(st7789v_interface_pixel_format *pixfmt);
+external byte st7789v_display_read_pixel_format(st7789v_interface_pixel_format_t *pixfmt);
 
 /**
  * Read the display image mode
@@ -738,10 +774,10 @@ external error_t st7789v_display_sleep_in(bool sync_delay);
 external error_t st7789v_display_sleep_out(bool sync_delay);
 
 /**
- * Enter out of the sleep mode of the display (sleep out)
+ * Set the display into normal mode, or partial mode, depending on the `enable` parameter.
  *
  * PARAMETERS
- * - enable: enable the normal mode state, if this is `false`, partial mode
+ * - enable: enable the normal mode state, if this is `false`, partial display mode
  *           is going to be enabled.
  *
  * RETURN VALUE
@@ -749,6 +785,86 @@ external error_t st7789v_display_sleep_out(bool sync_delay);
  * - EDISPLAYBUSY: if the display is busy with an DMA or reset operation
  */
 external error_t st7789v_display_set_normal_mode_state(bool enable);
+
+/**
+ * Enable display color inversion
+ *
+ * PARAMETERS
+ * - enable: enable color inversion
+ *
+ * RETURN VALUE
+ * - ENODISPLAYCONNECTED: if the display is not plugged in, or unavailable
+ * - EDISPLAYBUSY: if the display is busy with an DMA or reset operation
+ */
+external error_t st7789v_display_enable_inversion(bool enable);
+
+/**
+ * Set display gamma correction curve
+ *
+ * PARAMETERS
+ * - gamma_curve: the gamma curve to use
+ *
+ * RETURN VALUE
+ * - ENODISPLAYCONNECTED: if the display is not plugged in, or unavailable
+ * - EDISPLAYBUSY: if the display is busy with an DMA or reset operation
+ */
+external error_t st7789v_display_set_gamma_correction_curve(st7789v_gamma_curve_t gamma_curve);
+
+/**
+ * Turn on the display
+ *
+ * RETURN VALUE
+ * - ENODISPLAYCONNECTED: if the display is not plugged in, or unavailable
+ * - EDISPLAYBUSY: if the display is busy with an DMA or reset operation
+ */
+external error_t st7789v_display_turn_on(void);
+
+/**
+ * Turn off the display
+ *
+ * RETURN VALUE
+ * - ENODISPLAYCONNECTED: if the display is not plugged in, or unavailable
+ * - EDISPLAYBUSY: if the display is busy with an DMA or reset operation
+ */
+external error_t st7789v_display_turn_off(void);
+
+/**
+ * Set display column address window
+ *
+ * PARAMETERS
+ * - start: the starting column address the display will use
+ * - end: the ending column address the display will use
+ *
+ * NOTES
+ * - The range for these parameters is:
+ *   0 <= start < end <= 239  if st7789v_memory_access_control_t.row_column_exchange is true
+ *   0 <= start < end <= 320  if st7789v_memory_access_control_t.row_column_exchange is false
+ *
+ * RETURN VALUE
+ * - ENODISPLAYCONNECTED: if the display is not plugged in, or unavailable
+ * - EDISPLAYBUSY: if the display is busy with an DMA or reset operation
+ * - ENOTINRANGE: if the values doesn't match the allowed ranges for addresses
+ */
+external error_t st7789v_display_set_column_address_window(uint16_t start, uint16_t end);
+
+/**
+ * Set display row address window
+ *
+ * PARAMETERS
+ * - start: the starting row address the display will use
+ * - end: the ending row address the display will use
+ *
+ * NOTES
+ * - The range for these parameters is:
+ *   0 <= start < end <= 239  if st7789v_memory_access_control_t.row_column_exchange is false
+ *   0 <= start < end <= 320  if st7789v_memory_access_control_t.row_column_exchange is true
+ *
+ * RETURN VALUE
+ * - ENODISPLAYCONNECTED: if the display is not plugged in, or unavailable
+ * - EDISPLAYBUSY: if the display is busy with an DMA or reset operation
+ * - ENOTINRANGE: if the values doesn't match the allowed ranges for addresses
+ */
+external error_t st7789v_display_set_row_window(uint16_t start, uint16_t end);
 
 /**
  * Deinitializes this display
