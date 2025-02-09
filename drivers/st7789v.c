@@ -28,6 +28,9 @@ internal semaphore_t *dma_operation_completion_signal = NULL;
 //////////////////////////////////////////////////////////////// Driver-specific variables
 internal bool is_plugged = false;
 
+//////////////////////////////////////////////////////////////// Display state
+internal bool row_and_column_exchanged = false;
+
 /**
  * If there's an communication happening, this lock is triggered
  * when `st7789v_begin_comm()` is called, and released when `st7789v_end_comm()` is called.
@@ -80,7 +83,7 @@ internal void __isr st7789v_dma_irq_handler(void) {
     // FIXME: if i do not read this Data Register of the SPI after the DMA operation,
     //        it's not going to write properly if the transaction is only one byte.
     uint32_t value = spi_get_hw(serial)->dr;
-    
+
     mutex_exit(&busy_lock);
 }
 
@@ -120,7 +123,6 @@ internal force_inline
 bool st7789v_is_reset_busy() {
     return reset_lock.owner != LOCK_INVALID_OWNER_ID;
 }
-
 
 internal force_inline
 bool st7789v_is_sleep_busy() {
@@ -340,9 +342,11 @@ error_t st7789v_init() {
         ST7789V_PIN_DC
     );
 
-    st7789v_display_status_t status = { 0 };
+    st7789v_memory_access_control_t madctl = { 0 };
 
-    st7789v_display_read_status(&status);
+    st7789v_display_read_memory_access_control(&madctl);
+
+    row_and_column_exchanged = madctl.row_column_exchange;
 
     // TODO: init sequence here:
     //       - display_disable_sleep_mode
@@ -739,15 +743,222 @@ error_t st7789v_display_sleep_out(bool sync_delay) {
     return 0;
 }
 
-// TODO: COMMAND_PARTIAL_DISPLAY_MODE_ON
-// TODO: COMMAND_NORMAL_DISPLAY_MODE_ON
-// TODO: COMMAND_DISPLAY_INVERSION_OFF
-// TODO: COMMAND_DISPLAY_INVERSION_ON
-// TODO: COMMAND_GAMMA_SET
-// TODO: COMMAND_DISPLAY_OFF
-// TODO: COMMAND_DISPLAY_ON
-// TODO: COMMAND_COLUMN_ADDRESS_SET
-// TODO: COMMAND_ROW_ADDRESS_SET
+error_t st7789v_display_set_normal_mode_state(bool enable) {
+    if (!is_plugged) {
+        return -ENODISPLAYCONNECTED;
+    }
+
+    if (st7789v_is_dma_busy() || st7789v_is_reset_busy() || st7789v_is_sleep_busy()) {
+        return -EDISPLAYBUSY;
+    }
+
+    st7789v_command_t command = enable ? COMMAND_NORMAL_DISPLAY_MODE_ON : COMMAND_PARTIAL_DISPLAY_MODE_ON;
+
+    st7789v_begin_comm();
+
+    st7789v_send_command_sync(command, NULL, 0);
+
+    st7789v_end_comm();
+
+    return 0;
+}
+
+error_t st7789v_display_enable_inversion(bool enable) {
+    if (!is_plugged) {
+        return -ENODISPLAYCONNECTED;
+    }
+
+    if (st7789v_is_dma_busy() || st7789v_is_reset_busy() || st7789v_is_sleep_busy()) {
+        return -EDISPLAYBUSY;
+    }
+
+    st7789v_command_t command = enable ? COMMAND_DISPLAY_INVERSION_ON : COMMAND_DISPLAY_INVERSION_OFF;
+
+    st7789v_begin_comm();
+
+    st7789v_send_command_sync(command, NULL, 0);
+
+    st7789v_end_comm();
+
+    return 0;
+}
+
+error_t st7789v_display_set_gamma_correction_curve(st7789v_gamma_curve_t gamma_curve) {
+    if (!is_plugged) {
+        return -ENODISPLAYCONNECTED;
+    }
+
+    if (st7789v_is_dma_busy() || st7789v_is_reset_busy() || st7789v_is_sleep_busy()) {
+        return -EDISPLAYBUSY;
+    }
+
+    byte raw_value = 0x01;
+
+    switch (gamma_curve)
+    {
+    case GAMMA_CURVE_1_DOT_0:
+        raw_value = 0x08;
+        break;
+
+    case GAMMA_CURVE_2_DOT_5:
+        raw_value = 0x04;
+        break;
+
+    case GAMMA_CURVE_1_DOT_8:
+        raw_value = 0x02;
+        break;
+
+    /** The default value of `raw_value` is the bitmask for GAMMA_CURVE_2_DOT_2 */
+    default:
+        break;
+    }
+
+    st7789v_begin_comm();
+
+    st7789v_send_command_sync(COMMAND_GAMMA_SET, NULL, 0);
+
+    st7789v_write_sync(&raw_value, 0x01);
+
+    st7789v_end_comm();
+
+    return 0;
+}
+
+error_t st7789v_display_turn_on() {
+    if (!is_plugged) {
+        return -ENODISPLAYCONNECTED;
+    }
+
+    if (st7789v_is_dma_busy() || st7789v_is_reset_busy() || st7789v_is_sleep_busy()) {
+        return -EDISPLAYBUSY;
+    }
+
+    st7789v_begin_comm();
+
+    st7789v_send_command_sync(COMMAND_DISPLAY_ON, NULL, 0);
+
+    st7789v_end_comm();
+
+    return 0;
+}
+
+error_t st7789v_display_turn_off() {
+    if (!is_plugged) {
+        return -ENODISPLAYCONNECTED;
+    }
+
+    if (st7789v_is_dma_busy() || st7789v_is_reset_busy() || st7789v_is_sleep_busy()) {
+        return -EDISPLAYBUSY;
+    }
+
+    st7789v_begin_comm();
+
+    st7789v_send_command_sync(COMMAND_DISPLAY_OFF, NULL, 0);
+
+    st7789v_end_comm();
+
+    return 0;
+}
+
+error_t st7789v_display_set_column_address_window(uint16_t start, uint16_t end) {
+    if (!is_plugged) {
+        return -ENODISPLAYCONNECTED;
+    }
+
+    if (st7789v_is_dma_busy() || st7789v_is_reset_busy() || st7789v_is_sleep_busy()) {
+        return -EDISPLAYBUSY;
+    }
+
+    // The range for these parameters is:
+    // 0 <= start < end <= 239  if st7789v_memory_access_control_t.row_column_exchange is true
+    // 0 <= start < end <= 320  if st7789v_memory_access_control_t.row_column_exchange is false
+
+    uint16_t maximum_boundary = row_and_column_exchanged ? ST7789V_DISPLAY_HEIGHT : ST7789V_DISPLAY_WIDTH;
+
+    if (start < 0 || start > maximum_boundary || end < 0 || end > maximum_boundary) {
+        return -ENOTINRANGE;
+    }
+
+    if (start >= end) {
+        return -ENOTINRANGE;
+    }
+
+    byte paramaters[] = {
+        // Start address, MSB
+        (start >> 8) & 0xFF,
+        start & 0xFF,
+
+        // End address, MSB
+        (end >> 8) & 0xFF,
+        end & 0xFF
+    };
+
+    st7789v_begin_comm();
+
+    st7789v_send_command_sync(
+        /*         command: */ COMMAND_COLUMN_ADDRESS_SET,
+        /*      parameters: */ parameters,
+        /* parameter_count: */ sizeof(parameters) / sizeof(parameters[0])
+    );
+
+    st7789v_end_comm();
+
+    return 0;
+}
+
+/**
+ * NOTES
+ * - The range for these parameters is:
+ *   0 <= start < end <= 239  if st7789v_memory_access_control_t.row_column_exchange is false
+ *   0 <= start < end <= 320  if st7789v_memory_access_control_t.row_column_exchange is true
+ */
+error_t st7789v_display_set_row_window(uint16_t start, uint16_t end)
+{
+    if (!is_plugged) {
+        return -ENODISPLAYCONNECTED;
+    }
+
+    if (st7789v_is_dma_busy() || st7789v_is_reset_busy() || st7789v_is_sleep_busy()) {
+        return -EDISPLAYBUSY;
+    }
+
+    // The range for these parameters is:
+    // 0 <= start < end <= 239  if st7789v_memory_access_control_t.row_column_exchange is true
+    // 0 <= start < end <= 320  if st7789v_memory_access_control_t.row_column_exchange is false
+
+    uint16_t maximum_boundary = row_and_column_exchanged ? ST7789V_DISPLAY_WIDTH : ST7789V_DISPLAY_HEIGHT;
+
+    if (start < 0 || start > maximum_boundary || end < 0 || end > maximum_boundary) {
+        return -ENOTINRANGE;
+    }
+
+    if (start >= end) {
+        return -ENOTINRANGE;
+    }
+
+    byte paramaters[] = {
+        // Start address, MSB
+        (start >> 8) & 0xFF,
+        start & 0xFF,
+
+        // End address, MSB
+        (end >> 8) & 0xFF,
+        end & 0xFF
+    };
+
+    st7789v_begin_comm();
+
+    st7789v_send_command_sync(
+        /*         command: */ COMMAND_ROW_ADDRESS_SET,
+        /*      parameters: */ parameters,
+        /* parameter_count: */ sizeof(parameters) / sizeof(parameters[0])
+    );
+
+    st7789v_end_comm();
+
+    return 0;
+}
+
 // TODO: COMMAND_MEMORY_WRITE
 // TODO: COMMAND_MEMORY_READ
 // TODO: COMMAND_PARTIAL_AREA
