@@ -5,4 +5,7 @@ build/
 # VIM swap files
 *.swp
 
+# ctags
+tags
+
 compile_commands.json
