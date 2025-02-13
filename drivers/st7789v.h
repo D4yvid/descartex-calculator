@@ -20,9 +20,9 @@
 #endif
 
 #define ST7789V_SPI_PORT            spi0
-#define ST7789V_SPI_BAUDRATE        (6625 * 1000)
-#define ST7789V_READING_BAUDRATE    (6666 * 1000)
-#define ST7789V_WRITING_BAUDRATE    (15151 * 1000)
+#define ST7789V_SPI_BAUDRATE        (62500000)
+#define ST7789V_READING_BAUDRATE    (6666666)
+#define ST7789V_WRITING_BAUDRATE    (62500000)
 
 #define ST7789V_PIN_MISO        16
 #define ST7789V_PIN_CS          17
@@ -32,8 +32,8 @@
 
 /********************* DISPLAY CONSTANTS **************************/
 #define ST7789V_DISPLAY_ID      0x858552
-#define ST7789V_DISPLAY_WIDTH   319
-#define ST7789V_DISPLAY_HEIGHT  239
+#define ST7789V_DISPLAY_WIDTH   240
+#define ST7789V_DISPLAY_HEIGHT  320
 
 typedef enum st7789v_error_t
 {
@@ -41,7 +41,8 @@ typedef enum st7789v_error_t
     EDISPLAYBUSY        = 0x02,
     EINVALIDSTATE       = 0x03,
     ENODMAAVAILABLE     = 0x04,
-    ENOTINRANGE         = 0x05
+    ENOTINRANGE         = 0x05,
+    EUNAVAILABLE        = 0x06
 } st7789v_error_t;
 
 /**
@@ -56,7 +57,7 @@ typedef enum st7789v_error_t
  *
  * - Datasheet: https://newhavendisplay.com/pt/content/datasheets/ST7789V.pdf
  */
-typedef enum st7789v_command_t: uint8_t
+typedef enum st7789v_command_t: byte
 {
     /** implemented in st7789v_display_no_operation */
     COMMAND_NO_OPERATION                                        = 0x00,
@@ -83,7 +84,7 @@ typedef enum st7789v_command_t: uint8_t
     /** implemented in st7789v_display_sleep_out */
     COMMAND_SLEEP_OUT                                           = 0x11,
     /** implemented in st7789v_display_set_normal_mode_state(false) */
-    COMMAND_PARTIAL_DISPLAY_MODE_ON                        = 0x12,
+    COMMAND_PARTIAL_DISPLAY_MODE_ON                             = 0x12,
     /** implemented in st7789v_display_set_normal_mode_state(true) */
     COMMAND_NORMAL_DISPLAY_MODE_ON                              = 0x13,
     /** implemented in st7789v_display_enable_inversion(false) */
@@ -100,22 +101,39 @@ typedef enum st7789v_command_t: uint8_t
     COMMAND_COLUMN_ADDRESS_SET                                  = 0x2A,
     /** implemented in st7789v_display_set_row_address_window */
     COMMAND_ROW_ADDRESS_SET                                     = 0x2B,
+    /** implemented in st7789v_display_memory_write_sync & st7789v_display_memory_write_async */
     COMMAND_MEMORY_WRITE                                        = 0x2C,
+    /** implemented in st7789v_display_memory_read_sync */
     COMMAND_MEMORY_READ                                         = 0x2E,
+    /** implemented in st7789v_display_set_partial_area */
     COMMAND_PARTIAL_AREA                                        = 0x30,
+    /** implemented in st7789v_display_set_vertical_scrolling_parameters */
     COMMAND_VERTICAL_SCROLLING_DEFINITION                       = 0x33,
+    /** implemented in st7789v_display_set_tearing_line_effect_enabled(false) */
     COMMAND_TEARING_EFFECT_LINE_OFF                             = 0x34,
+    /** implemented in st7789v_display_set_tearing_line_effect_enabled(true) */
     COMMAND_TEARING_EFFECT_LINE_ON                              = 0x35,
+    /** implemented in st7789v_display_set_memory_access_control */
     COMMAND_MEMORY_ACCESS_CONTROL                               = 0x36,
+    /** implemented in st7789v_display_set_vertical_scrolling_start_address */
     COMMAND_VERTICAL_SCROLL_START_ADDRESS                       = 0x37,
+    /** implemented in st7789v_display_set_idle(false) */
     COMMAND_IDLE_MODE_OFF                                       = 0x38,
+    /** implemented in st7789v_display_set_idle(true) */
     COMMAND_IDLE_MODE_ON                                        = 0x39,
+    /** implemented in st7789v_display_set_pixel_format */
     COMMAND_COLOR_PIXEL_FORMAT                                  = 0x3A,
+    /** implemented in st7789v_display_memory_write_sync & st7789v_display_memory_write_async */
     COMMAND_MEMORY_WRITE_CONTINUE                               = 0x3C,
+    /** implemented in st7789v_display_memory_read_sync */
     COMMAND_MEMORY_READ_CONTINUE                                = 0x3E,
+    /** implemented in st7789v_display_set_tear_scanline */
     COMMAND_SET_TEAR_SCANLINE                                   = 0x44,
+    /** implemented in st7789v_display_read_scanline */
     COMMAND_GET_SCANLINE                                        = 0x45,
+    /** implemented in st7789v_display_set_display_brightness */
     COMMAND_WRITE_DISPLAY_BRIGHTNESS                            = 0x51,
+    /** implemented in st7789v_display_read_display_brightness */
     COMMAND_READ_DISPLAY_BRIGHTNESS                             = 0x52,
     COMMAND_WRITE_CTRL_DISPLAY                                  = 0x53,
     COMMAND_READ_CTRL_DISPLAY                                   = 0x54,
@@ -132,7 +150,7 @@ typedef enum st7789v_command_t: uint8_t
 /**
  * The color order for pixels sent
  */
-typedef enum st7789v_color_order_t: uint8_t
+typedef enum st7789v_color_order_t: byte
 {
     /**
      * Use RGB order for sent pixels, for example:
@@ -153,7 +171,7 @@ typedef enum st7789v_color_order_t: uint8_t
  * This define how we need to send bits for the display, otherwise
  * the display can interpret the data wrong
  */
-typedef enum st7789v_pixel_format_t: uint8_t
+typedef enum st7789v_pixel_format_t: byte
 {
     /**
      * Use 12 bits per pixel, 4 bits for R, G and B
@@ -179,7 +197,7 @@ typedef enum st7789v_pixel_format_t: uint8_t
 /**
  * The configured bit depth of the display
  */
-typedef enum st7789v_rgb_interface_format: uint8_t
+typedef enum st7789v_rgb_interface_format: byte
 {
     /**
      * If the display is using 65K colors to display the image data
@@ -195,7 +213,7 @@ typedef enum st7789v_rgb_interface_format: uint8_t
 /**
  * This command will control how the display will tear its contents
  */
-typedef enum st7789v_tearing_effect_mode_t: uint8_t
+typedef enum st7789v_tearing_effect_mode_t: byte
 {
     /** If the display only should tear when the vertical blank is at maximum */
     TEARING_EFFECT_MODE_VBLANK_ONLY       = 0x00,
@@ -208,7 +226,7 @@ typedef enum st7789v_tearing_effect_mode_t: uint8_t
  * The gamma curve used for gamma correction in the display, to understand
  * how this works, take a look here: https://en.wikipedia.org/wiki/Gamma_correction
  */
-typedef enum st7789v_gamma_curve_t: uint8_t
+typedef enum st7789v_gamma_curve_t: byte
 {
     /** 2.2 curve */
     GAMMA_CURVE_2_DOT_2 = 0x01,
@@ -224,6 +242,25 @@ typedef enum st7789v_gamma_curve_t: uint8_t
 } st7789v_gamma_curve_t;
 
 /**
+ * The content adaptive image type the display is using
+ */
+typedef enum st7789v_content_adaptive_brightness_t: byte {
+    CONTENT_ADAPTIVE_OFF                    = 0b00,
+    CONTENT_ADAPTIVE_USER_INTERFACE         = 0b01,
+    CONTENT_ADAPTIVE_STILL_PICTURE          = 0b10,
+    CONTENT_ADAPTIVE_MOVING_IMAGE           = 0b11
+} st7789v_content_adaptive_brightness_t;
+
+/**
+ * The color enhancement mode the display is using, if available
+ */
+typedef enum st7789v_color_enhancement_type_t: byte {
+    COLOR_ENHANCEMENT_LOW           = 0b00,
+    COLOR_ENHANCEMENT_MEDIUM        = 0b01,
+    COLOR_ENHANCEMENT_HIGH          = 0b11
+} st7789v_color_enhancement_type_t;
+
+/**
  * The almost full display status (is missing some data you can query
  * separately)
  *
@@ -234,7 +271,7 @@ typedef union st7789v_display_status_t
     uint32_t raw_value;
 
     struct {
-        uint8_t                                                     : 5;
+        byte                                                     : 5;
 
         /** The tearing effect mode the display is in */
         st7789v_tearing_effect_mode_t   tearing_effect_mode         : 1;
@@ -252,13 +289,13 @@ typedef union st7789v_display_status_t
          * If the display is on, and showing the pixel data.
          */
         bool                            display_on                  : 1;
-        uint8_t                                                     : 2;
+        byte                                                     : 2;
 
         /**
          * If color inversion is applied in the display's pixels
          */
         bool                            color_inversion             : 1;
-        uint8_t                                                     : 2;
+        byte                                                     : 2;
 
         /**
          * If the display is on normal operation, if this is false,
@@ -292,7 +329,7 @@ typedef union st7789v_display_status_t
          */
         st7789v_pixel_format_t          pixel_format                : 3;
 
-        uint8_t                                                     : 2;
+        byte                                                     : 2;
 
         /**
          * If the display memory is being used from right to left
@@ -338,39 +375,39 @@ typedef union st7789v_display_status_t
  * Read this structure from the display by using `st7789v_display_read_memory_access_control`.
  */
 typedef union st7789v_memory_access_control_t {
-    uint8_t raw_value;
+    byte raw_value;
 
     struct {
-        uint8_t                                 : 2;
+        byte                                 : 2;
         
         /**
-         * If the display memory is being used from right to left
+         * If the display memory is being used from right to left (MH)
          */
         bool        horizontal_order_rtl        : 1;
 
         /**
-         * If the display memory is being used with BGR order instead of RGB order
+         * If the display memory is being used with BGR order instead of RGB order (RGB)
          */
         bool        bgr_pixels                  : 1;
 
         /**
-         * If the display memory is being read with the scan address incrementing
+         * If the display memory is being read with the scan address incrementing (ML)
          */
         bool        scan_address_increment      : 1;
                 
         /**
          * If the display memory is being read with the column and row addresses
-         * exchanged
+         * exchanged (MV)
          */
         bool        row_column_exchange         : 1;
 
         /**
-         * If the display memory is being read with the column address decrementing
+         * If the display memory is being read with the column address decrementing (MX)
          */
         bool        column_address_decrement    : 1;
                 
         /**
-         * If the display memory is being read with the row address decrementing
+         * If the display memory is being read with the row address decrementing (MY)
          */
         bool        row_address_decrement       : 1;
     } __attribute__((packed));
@@ -382,10 +419,10 @@ typedef union st7789v_memory_access_control_t {
  * Read this structure from the display by using `st7789v_display_read_power_mode`.
  */
 typedef union st7789v_power_mode_t {
-    uint8_t raw_value;
+    byte raw_value;
 
     struct {
-        uint8_t                             : 2;
+        byte                             : 2;
         
         /**
          * If the display is on, and showing the pixel data.
@@ -432,17 +469,17 @@ typedef union st7789v_power_mode_t {
  * Read this structure from the display by using `st7789v_display_read_pixel_format`.
  */
 typedef union st7789v_interface_pixel_format_t {
-    uint8_t raw_value;
+    byte raw_value;
 
     struct {
-        uint8_t                                         : 1;
+        byte                                         : 1;
 
         /**
          * How many colors the display is using to show the image
          */
         st7789v_rgb_interface_format_t  rgb_format      : 3;
 
-        uint8_t                                         : 1;
+        byte                                         : 1;
 
         /**
          * The pixel format being used by the display (or depth)
@@ -457,20 +494,20 @@ typedef union st7789v_interface_pixel_format_t {
  * Read this structure from the display by using `st7789v_display_read_image_mode`
  */
 typedef union st7789v_image_mode_t {
-    uint8_t raw_value;
+    byte raw_value;
 
     struct {
         /**
          * The gamma curve the display is using
          */
         st7789v_gamma_curve_t   gamma_curve         : 3;
-        uint8_t                                     : 2;
+        byte                                     : 2;
 
         /**
          * If the display has color inversion enabled
          */
         bool                    color_inversion     : 1;
-        uint8_t                                     : 1;
+        byte                                     : 1;
         
         /**
          * If vertical scrolling is being used by the display
@@ -480,27 +517,101 @@ typedef union st7789v_image_mode_t {
 } st7789v_image_mode_t;
 
 /**
+ * The current signal mode used by the display
  *
+ * Read this structure from the display by using `st7789v_display_read_signal_mode`
  */
 typedef union st7789v_signal_mode_t {
-    uint8_t raw_value;
+    byte raw_value;
 
     struct {
-        uint8_t                                             : 6;
+        byte                                             : 6;
+
+        /**
+         * If the tearing effect line is enabled (if this is false,
+         * the `tearing_effect_mode` doesn't change anything)
+         */
         st7789v_tearing_effect_mode_t   tearing_effect_mode : 1;
+
+        /**
+         * If the tearing effect line is enabled (if this is false,
+         * the `tearing_effect_mode` doesn't change anything)
+         */
         bool                            tearing_effect_line : 1;
     } __attribute__((packed));
 } st7789v_signal_mode_t;
 
-typedef union st7789v_display_self_diagnostic_t {
-    uint8_t raw_value;
+/**
+ * Display self diagnostic information
+ *
+ * Read this structure from the display by using `st7789v_display_read_self_diagnostic` & `st7789v_display_read_adaptive_brightness_control_self_diagnostic`
+ */
+typedef union st7789v_self_diagnostic_t {
+    byte raw_value;
 
     struct {
-        uint8_t                             : 6;
+        byte                             : 6;
         bool    register_loading            : 1;
         bool    functionality_detection     : 1;
     } __attribute__((packed));
-} st7789v_display_self_diagnostic_t;
+} st7789v_self_diagnostic_t;
+
+/**
+ * Current display control register
+ *
+ * Read this structure from the display by using `st7789v_self_diagnostic_t`
+ */
+typedef union st7789v_display_ctrl_t {
+    byte raw_value;
+
+    struct {
+        byte                             : 2;
+        /**
+         * If backlight control is enabled on this display
+         */
+        bool        backlight_control       : 1;
+
+        /**
+         * If display dimming is enabled on this display
+         */
+        bool        display_dimming         : 1;
+        byte                             : 1;
+
+        /**
+         * If brightness control is enabled on this display
+         */
+        bool        brightness_control      : 1;
+        byte                             : 2;
+    } __attribute__((packed));
+} st7789v_display_ctrl_t;
+
+/**
+ * The display content adaptive brightness and color enhancement settings
+ *
+ * Used for setting values to the display only.
+ */
+typedef union st7789v_adaptive_brightness_color_enhancement_t {
+    byte raw_value;
+
+    struct {
+        /**
+         * If color enhancement is enabled on the display
+         */
+        bool                                    color_enhancement       : 1;
+        byte                                                         : 1;
+
+        /**
+         * The color enhancement type the display is using
+         */
+        st7789v_color_enhancement_type_t        color_enhancement_type  : 2;
+        byte                                                         : 2;
+
+        /**
+         * The adaptive content type this display is using
+         */
+        st7789v_content_adaptive_brightness_t   content_type            : 2;
+    } __attribute__((packed));
+} st7789v_adaptive_brightness_color_enhancement_t;
 
 /**
  * Initialize the display on the pins defined above, using pico's Serial interface and
@@ -518,15 +629,15 @@ external error_t st7789v_init(void);
  * RETURN VALUE
  * - ENODISPLAYCONNECTED: if the display is not plugged in, or unavailable
  */
-external error_t st7789v_begin_comm();
+external error_t st7789v_begin_comm(void);
 
 /**
- * End a communication with the display (set CS to LOW)
+ * End a communication with the display (set CS to HIGH)
  * 
  * RETURN VALUE
  * - ENODISPLAYCONNECTED: if the display is not plugged in, or unavailable
  */
-external error_t st7789v_end_comm();
+external error_t st7789v_end_comm(void);
 
 /**
  * Begin the writing of an command, if you're sending a Command, PLEASE use this at the beginning
@@ -534,7 +645,7 @@ external error_t st7789v_end_comm();
  * RETURN VALUE
  * - ENODISPLAYCONNECTED: if the display is not plugged in, or unavailable
  */
-external void st7789v_begin_command();
+external void st7789v_begin_command(void);
 
 /**
  * End the writing of an command, if you're not sending a command, for example, sending pixels or
@@ -543,22 +654,30 @@ external void st7789v_begin_command();
  * RETURN VALUE
  * - ENODISPLAYCONNECTED: if the display is not plugged in, or unavailable
  */
-external void st7789v_end_command();
+external void st7789v_end_command(void);
 
 /**
  * Write synchronously into the display, this is useful to send commands,
  * as all command routines need to be timed with `st7789v_begin_command` and `st7789v_end_command`
+ *
+ * PARAMETERS
+ * - buffer: the buffer to write
+ * - size: the size of the buffer to write
  * 
  * RETURN VALUE
  * - ENODISPLAYCONNECTED: if the display is not plugged in, or unavailable
  * - EDISPLAYBUSY: if the display is busy with an DMA or reset operation
  */
-external error_t st7789v_write_sync(byte *buffer, size_t length);
+external error_t st7789v_write_sync(byte *buffer, size_t size);
 
 /**
  * Read synchronously into the display, this is useful to receive command outputs,
  * as all command routines need to be timed with `st7789v_begin_command` and `st7789v_end_command`,
  * you can precisely control when to read data
+ *
+ * PARAMETERS
+ * - buffer: the buffer to read into
+ * - size: how many bytes should be read from the device
  * 
  * RETURN VALUE
  * - ENODISPLAYCONNECTED: if the display is not plugged in, or unavailable
@@ -569,6 +688,17 @@ error_t st7789v_read_sync(byte *buffer, size_t size);
 /**
  * This function tries to write asynchronously into the display, this is useful to large buffers,
  * like pixels, etc.
+ *
+ * PARAMETERS
+ * - buffer: the buffer to write
+ * - size: the size of the buffer to write
+ * - data_size: the size of the buffer data, use DMA_SIZE_8 for bytes
+ * - completion_signal: the semaphore to be released when the transaction finishes
+ * - close_comm_when_finish: if the dma irq handler should call `st7789v_end_comm(void)` when finishes writing
+ *
+ * NOTES
+ * - the `data_size` and `size` parameters are related, if you put DMA_SIZE_16, you'll need to provide
+ *   the size of the buffer (`size`) into 16-bit values, and not the byte size of the buffer.
  * 
  * RETURN VALUE
  * - ENODISPLAYCONNECTED: if the display is not plugged in, or unavailable
@@ -578,7 +708,8 @@ external error_t st7789v_dma_write(
     byte *buffer,
     size_t size,
     enum dma_channel_transfer_size data_size,
-    semaphore_t *completion_signal
+    semaphore_t *completion_signal,
+    bool close_comm_when_finish
 );
 
 /**
@@ -591,6 +722,11 @@ external error_t st7789v_sync_dma_operation(void);
 
 /**
  * Send an command synchronously to the display
+ *
+ * PARAMETERS
+ * - command: the command to send
+ * - parameters: the parameters this command receive
+ * - parameter_count: how many parameters has in the `paramaters` pointer
  *
  * RETURN VALUE
  * - ENODISPLAYCONNECTED: if the display is not plugged in, or unavailable
@@ -721,7 +857,7 @@ external byte st7789v_display_read_signal_mode(st7789v_signal_mode_t *signal_mod
  * Read the display self diagnostic
  *
  * PARAMETERS
- * - diag: a pointer to an `st7789v_display_self_diagnostic_t` structure where this function
+ * - diag: a pointer to an `st7789v_self_diagnostic_t` structure where this function
  *         will store the diagnostic data.
  *
  * RETURN VALUE
@@ -729,7 +865,7 @@ external byte st7789v_display_read_signal_mode(st7789v_signal_mode_t *signal_mod
  * - EDISPLAYBUSY: if the display is busy with an DMA or reset operation
  * - The raw display self diagnostic value
  */
-external byte st7789v_display_read_self_diagnostic(st7789v_display_self_diagnostic_t *diag);
+external byte st7789v_display_read_self_diagnostic(st7789v_self_diagnostic_t *diag);
 
 /**
  * Enter in the sleep mode of the display (sleep in)
@@ -864,7 +1000,319 @@ external error_t st7789v_display_set_column_address_window(uint16_t start, uint1
  * - EDISPLAYBUSY: if the display is busy with an DMA or reset operation
  * - ENOTINRANGE: if the values doesn't match the allowed ranges for addresses
  */
-external error_t st7789v_display_set_row_window(uint16_t start, uint16_t end);
+external error_t st7789v_display_set_row_address_window(uint16_t start, uint16_t end);
+
+/**
+ * Write into the display memory synchronously
+ *
+ * PARAMETERS
+ * - buffer: the buffer to write into the display's memory
+ * - size: the size of the buffer
+ * - continue_writing: if you want to continue an old write operation (using COMMAND_MEMORY_WRITE_CONTINUE)
+ *
+ * RETURN VALUE
+ * - ENODISPLAYCONNECTED: if the display is not plugged in, or unavailable
+ * - EDISPLAYBUSY: if the display is busy with an DMA or reset operation
+ */
+external error_t st7789v_display_memory_write_sync(byte *buffer, size_t size, bool continue_writing);
+
+/**
+ * Write into the display memory asynchronously using DMA operations
+ *
+ * PARAMETERS
+ * - buffer: the buffer to write into the display's memory
+ * - size: the size of the buffer
+ * - completion_signal: the semaphore to release when the memory finishes writing
+ * - continue_writing: if you want to continue an old write operation (using COMMAND_MEMORY_WRITE_CONTINUE)
+ *
+ * NOTES
+ * - the DMA operation is called with `close_comm_when_finish` as true, so the communication will
+ *   end as soon the operation finishes. DO NOT TRY SENDING COMMANDS WHILE THIS OPERATION IS ONGOING.
+ *
+ * RETURN VALUE
+ * - ENODISPLAYCONNECTED: if the display is not plugged in, or unavailable
+ * - EDISPLAYBUSY: if the display is busy with an DMA or reset operation
+ */
+external error_t st7789v_display_memory_write_async(
+    byte *buffer,
+    size_t size,
+    semaphore_t *completion_signal,
+    bool continue_writing
+);
+
+/**
+ * Read from the display memory synchronously
+ *
+ * PARAMETERS
+ * - buffer: the buffer to write the data from the display's memory
+ * - size: the size of the buffer
+ * - continue_reading: if you want to continue an old read operation (using COMMAND_MEMORY_READ_CONTINUE)
+ *
+ * RETURN VALUE
+ * - ENODISPLAYCONNECTED: if the display is not plugged in, or unavailable
+ * - EDISPLAYBUSY: if the display is busy with an DMA or reset operation
+ */
+external error_t st7789v_display_memory_read_sync(byte *buffer, size_t size, bool continue_reading);
+
+/**
+ * Set display partial area
+ *
+ * PARAMETERS
+ * - start: the starting line of the partial area
+ * - end: the ending line of the partial area
+ *
+ * RETURN VALUE
+ * - ENODISPLAYCONNECTED: if the display is not plugged in, or unavailable
+ * - EDISPLAYBUSY: if the display is busy with an DMA or reset operation
+ */
+external error_t st7789v_display_set_partial_area(uint16_t start, uint16_t end);
+
+/**
+ * Set vertical scrolling parameters for display
+ *
+ * NOTES
+ * - top_fixed_area + vertical_scrolling_area + bottom_fixed_area needs to be 320
+ * - display's memory access control configuration should have `row_column_exchange` set to false.
+ *
+ * RETURN VALUE
+ * - ENODISPLAYCONNECTED: if the display is not plugged in, or unavailable
+ * - EDISPLAYBUSY: if the display is busy with an DMA or reset operation
+ * - ENOTINRANGE: if the sum of all parameters is not 320
+ * - EUNAVAILABLE: if this function is not available because of the configuration of the display
+ */
+external error_t st7789v_display_set_vertical_scrolling_parameters(
+    uint16_t top_fixed_area,
+    uint16_t vertical_scrolling_area,
+    uint16_t bottom_fixed_area
+);
+
+/**
+ * Enable or disable tearing line effect
+ *
+ * PARAMETERS
+ * - enable: if you want to enable the tearing line effect
+ *
+ * RETURN VALUE
+ * - ENODISPLAYCONNECTED: if the display is not plugged in, or unavailable
+ * - EDISPLAYBUSY: if the display is busy with an DMA or reset operation
+ */
+external error_t st7789v_display_set_tearing_line_effect_enabled(bool enable);
+
+/**
+ * Configure display's memory access control
+ *
+ * PARAMETERS
+ * - madctl: the new memory access control configuration to use
+ *
+ * RETURN VALUE
+ * - ENODISPLAYCONNECTED: if the display is not plugged in, or unavailable
+ * - EDISPLAYBUSY: if the display is busy with an DMA or reset operation
+ */
+external error_t st7789v_display_set_memory_access_control(st7789v_memory_access_control_t madctl);
+
+/**
+ * Set vertical scroll start address of RAM
+ *
+ * PARAMETERS
+ * - address: the address where the vertical scroll will start
+ *
+ * RETURN VALUE
+ * - ENODISPLAYCONNECTED: if the display is not plugged in, or unavailable
+ * - EDISPLAYBUSY: if the display is busy with an DMA or reset operation
+ */
+external error_t st7789v_display_set_vertical_scrolling_start_address(uint16_t address);
+
+/**
+ * Set display idle mode
+ *
+ * PARAMETERS
+ * - enable: if you want to enable idle mode
+ *
+ * RETURN VALUE
+ * - ENODISPLAYCONNECTED: if the display is not plugged in, or unavailable
+ * - EDISPLAYBUSY: if the display is busy with an DMA or reset operation
+ */
+external error_t st7789v_display_set_idle(bool enable);
+
+/**
+ * Set display interface pixel format
+ *
+ * PARAMETERS
+ * - colmod: the new interface pixel format to be used in the display
+ *
+ * RETURN VALUE
+ * - ENODISPLAYCONNECTED: if the display is not plugged in, or unavailable
+ * - EDISPLAYBUSY: if the display is busy with an DMA or reset operation
+ */
+external error_t st7789v_display_set_pixel_format(st7789v_interface_pixel_format_t colmod);
+
+/**
+ * Set display tearing scanline
+ *
+ * PARAMETERS
+ * - scanline_number: the new tear scanline number
+ *
+ * RETURN VALUE
+ * - ENODISPLAYCONNECTED: if the display is not plugged in, or unavailable
+ * - EDISPLAYBUSY: if the display is busy with an DMA or reset operation
+ */
+external error_t st7789v_display_set_tear_scanline(uint16_t scanline_number);
+
+/**
+ * Get display scanline
+ *
+ * RETURN VALUE
+ * - ENODISPLAYCONNECTED: if the display is not plugged in, or unavailable
+ * - EDISPLAYBUSY: if the display is busy with an DMA or reset operation
+ * - The current scanline number
+ */
+external uint16_t st7789v_display_read_scanline(void);
+
+/**
+ * Set the display brightness
+ *
+ * PARAMETERS
+ * - value: the display brightness value, from 0 to 255, where 255 is the brightest, and 0 is lowest.
+ *
+ * RETURN VALUE
+ * - ENODISPLAYCONNECTED: if the display is not plugged in, or unavailable
+ * - EDISPLAYBUSY: if the display is busy with an DMA or reset operation
+ */
+external error_t st7789v_display_set_display_brightness(byte value);
+
+/**
+ * Get the display brightness
+ *
+ * RETURN VALUE
+ * - ENODISPLAYCONNECTED: if the display is not plugged in, or unavailable
+ * - EDISPLAYBUSY: if the display is busy with an DMA or reset operation
+ * - The current scanline number
+ */
+external byte st7789v_display_read_display_brightness(void);
+
+/**
+ * Set the display control register
+ *
+ * PARAMETERS
+ * - ctrl: the new options for the control register of this display
+ *
+ * RETURN VALUE:
+ * - ENODISPLAYCONNECTED: if the display is not plugged in, or unavailable
+ * - EDISPLAYBUSY: if the display is busy with an DMA or reset operation
+ */
+external error_t st7789v_display_set_ctrl_register(st7789v_display_ctrl_t ctrl);
+
+/**
+ * Get the display control register
+ *
+ * PARAMETERS
+ * - ctrl: a pointer to where this will store the new ctrl register values
+ *
+ * RETURN VALUE:
+ * - ENODISPLAYCONNECTED: if the display is not plugged in, or unavailable
+ * - EDISPLAYBUSY: if the display is busy with an DMA or reset operation
+ * - the raw display control register value
+ */
+external uint32_t st7789v_display_read_ctrl_register(st7789v_display_ctrl_t *ctrl);
+
+/**
+ * Write the display's content adaptive brightness and color enhancement
+ *
+ * PARAMETERS
+ * - coca: the new content adaptive brightness and color enhancement settings for the display
+ *
+ * RETURN VALUE:
+ * - ENODISPLAYCONNECTED: if the display is not plugged in, or unavailable
+ * - EDISPLAYBUSY: if the display is busy with an DMA or reset operation
+ */
+external error_t st7789v_display_set_adaptive_brightness_color_enhancement(
+    st7789v_adaptive_brightness_color_enhancement_t coca
+);
+
+/**
+ * Read the display's content adaptive brightness
+ *
+ * PARAMETERS
+ * - brightness: a pointer to where this will store the brightness values
+ *
+ * RETURN VALUE:
+ * - ENODISPLAYCONNECTED: if the display is not plugged in, or unavailable
+ * - EDISPLAYBUSY: if the display is busy with an DMA or reset operation
+ * - the raw content adaptive brightness and color enhancement value
+ */
+external byte st7789v_display_read_content_adaptive_brightness(
+    st7789v_content_adaptive_brightness_t *brightness
+);
+
+/**
+ * Write the display's minimum content adaptive brightness
+ *
+ * PARAMETERS
+ * - value: the new minimum brightness value for the display
+ *
+ * RETURN VALUE:
+ * - ENODISPLAYCONNECTED: if the display is not plugged in, or unavailable
+ * - EDISPLAYBUSY: if the display is busy with an DMA or reset operation
+ */
+external error_t st7789v_display_set_content_adaptive_minimum_brightness(byte value);
+
+/**
+ * Read the display's minimum content adaptive brightness
+ *
+ * PARAMETERS
+ * - value: the new minimum brightness value for the display
+ *
+ * RETURN VALUE:
+ * - ENODISPLAYCONNECTED: if the display is not plugged in, or unavailable
+ * - EDISPLAYBUSY: if the display is busy with an DMA or reset operation
+ */
+external byte st7789v_display_read_content_adaptive_minimum_brightness(void);
+
+/**
+ * Read the display self diagnostic
+ *
+ * PARAMETERS
+ * - diag: a pointer to an `st7789v_self_diagnostic_t` structure where this function
+ *         will store the diagnostic data.
+ *
+ * RETURN VALUE
+ * - ENODISPLAYCONNECTED: if the display is not plugged in, or unavailable
+ * - EDISPLAYBUSY: if the display is busy with an DMA or reset operation
+ * - The raw display adaptive brightness self diagnostic value
+ */
+external byte st7789v_display_read_adaptive_brightness_control_self_diagnostic(
+    st7789v_self_diagnostic_t *diag
+);
+
+/**
+ * Read the display id 1
+ *
+ * RETURN VALUE
+ * - ENODISPLAYCONNECTED: if the display is not plugged in, or unavailable
+ * - EDISPLAYBUSY: if the display is busy with an DMA or reset operation
+ * - The display id 1
+ */
+external byte st7789v_display_read_id_1(void);
+
+/**
+ * Read the display id 2
+ *
+ * RETURN VALUE
+ * - ENODISPLAYCONNECTED: if the display is not plugged in, or unavailable
+ * - EDISPLAYBUSY: if the display is busy with an DMA or reset operation
+ * - The display id 2
+ */
+external byte st7789v_display_read_id_2(void);
+
+/**
+ * Read the display id 3
+ *
+ * RETURN VALUE
+ * - ENODISPLAYCONNECTED: if the display is not plugged in, or unavailable
+ * - EDISPLAYBUSY: if the display is busy with an DMA or reset operation
+ * - The display id 3
+ */
+external byte st7789v_display_read_id_3(void);
 
 /**
  * Deinitializes this display
