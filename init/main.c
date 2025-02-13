@@ -35,10 +35,11 @@ int main(void)
     LOG("init", "starting up...");
     LOG("init", "loading drivers...");
 
-    st7789v_init();
+    if (0 != st7789v_init()) {
+        LOG("init", "warning: no display is attached");
+    }
 
     LOG("init", "loading HALs...");
-    LOG("init", "todo: really loading HALs...");
 
     LOG("init", "starting up application...");
 
