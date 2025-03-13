@@ -1,6 +1,8 @@
 #ifndef APP_ENTRY_H
 #define APP_ENTRY_H
 
+#pragma once
+
 #include <util/util.h>
 #include <stdbool.h>
 

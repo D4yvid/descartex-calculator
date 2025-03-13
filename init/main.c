@@ -3,10 +3,11 @@
 #include <stdbool.h>
 
 #include <app/entry.h>
-#include <drivers/st7789v.h>
 #include <stdio.h>
 #include <util/time.h>
 #include <util/log.h>
+
+#include <display/display.h>
 
 #include <pico/bootrom.h>
 
@@ -16,32 +17,15 @@
 
 int main(void)
 {
-    assert(stdio_usb_init());
-
-    bool restart = false;
-
-    char c = 0x00;
-
-    while (c == 0x00) {
-        // This will only return falsy when the Serial Terminal connects and sends an character
-        // so all logs are shown
-        c = getchar_timeout_us(1000 * ONE_SECOND_IN_MICROSECONDS);
+    if (0 != display_init()) {
+        for (;;);
     }
 
-    // Clear terminal on the OS side
-    printf("\033[H\033[J\033[2J");
-    fflush(stdout);
-
-    LOG("init", "starting up...");
-    LOG("init", "loading drivers...");
-
-    if (0 != st7789v_init()) {
-        LOG("init", "warning: no display is attached");
-    }
-
-    LOG("init", "loading HALs...");
+    stdio_usb_init();
 
     LOG("init", "starting up application...");
+
+    bool restart = false;
 
     for (;;)
     {
@@ -56,9 +40,9 @@ int main(void)
         LOG("init", "application asked to restart, restarting...");
     }
 
-    LOG("init", "deinitializing drivers");
+    LOG("init", "deinitializing HALs...");
 
-    st7789v_deinit();
+    display_deinit();
 
 #ifndef DO_NOT_REBOOT_IN_BOOTSEL
     LOG("init", "rebooting into BOOTSEL mode");

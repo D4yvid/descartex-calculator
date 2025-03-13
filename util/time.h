@@ -1,6 +1,8 @@
 #ifndef UTIL_TIME_H
 #define UTIL_TIME_H
 
+#pragma once
+
 #define ONE_SECOND_IN_MICROSECONDS 1000000
 
 #endif /** UTIL_TIME_H */

@@ -1,6 +1,8 @@
 #ifndef DRIVERS_ST7789V_H
 #define DRIVERS_ST7789V_H
 
+#pragma once
+
 #include <hardware/spi.h>
 #include <hardware/dma.h>
 #include <pico/sem.h>
@@ -135,16 +137,26 @@ typedef enum st7789v_command_t: byte
     COMMAND_WRITE_DISPLAY_BRIGHTNESS                            = 0x51,
     /** implemented in st7789v_display_read_display_brightness */
     COMMAND_READ_DISPLAY_BRIGHTNESS                             = 0x52,
+    /** implemented in st7789v_display_set_ctrl_register */
     COMMAND_WRITE_CTRL_DISPLAY                                  = 0x53,
+    /** implemented in st7789v_display_read_ctrl_register */
     COMMAND_READ_CTRL_DISPLAY                                   = 0x54,
+    /** implemented in st7789v_display_set_adaptive_brightness_color_enhancement */
     COMMAND_WRITE_CONTENT_ADAPTIVE_BRIGHTNESS_COLOR_ENHANCEMENT = 0x55,
+    /** implemented in st7789v_display_read_content_adaptive_brightness */
     COMMAND_READ_CONTENT_ADAPTIVE_BRIGHTNESS                    = 0x56,
+    /** implemented in st7789v_display_set_content_adaptive_minimum_brightness */
     COMMAND_WRITE_CONTENT_ADAPTIVE_MINIMUM_BRIGHTNESS           = 0x5E,
+    /** implemented in st7789v_display_read_content_adaptive_minimum_brightness */
     COMMAND_READ_CONTENT_ADAPTIVE_MINIMUM_BRIGHTNESS            = 0x5F,
+    /** implemented in st7789v_display_read_adaptive_brightness_control_self_diagnostic */
     COMMAND_READ_AUTOMATIC_BRIGHTNESS_SELF_DIAGNOSTIC           = 0x68,
+    /** implemented in st7789v_display_read_id_1 */
     COMMAND_READ_ID_1                                           = 0xDA,
+    /** implemented in st7789v_display_read_id_2 */
     COMMAND_READ_ID_2                                           = 0xDB,
-    COMMAND_READ_ID_3                                           = 0xDC
+    /** implemented in st7789v_display_read_id_3 */
+    COMMAND_READ_ID_3                                           = 0xDC,
 } st7789v_command_t;
 
 /**
@@ -266,12 +278,11 @@ typedef enum st7789v_color_enhancement_type_t: byte {
  *
  * Read this structure from the display by using `st7789v_display_read_status`.
  */
-typedef union st7789v_display_status_t
-{
+typedef union st7789v_display_status_t {
     uint32_t raw_value;
 
     struct {
-        byte                                                     : 5;
+        byte                                                        : 5;
 
         /** The tearing effect mode the display is in */
         st7789v_tearing_effect_mode_t   tearing_effect_mode         : 1;
@@ -289,13 +300,13 @@ typedef union st7789v_display_status_t
          * If the display is on, and showing the pixel data.
          */
         bool                            display_on                  : 1;
-        byte                                                     : 2;
+        byte                                                        : 2;
 
         /**
          * If color inversion is applied in the display's pixels
          */
         bool                            color_inversion             : 1;
-        byte                                                     : 2;
+        byte                                                        : 2;
 
         /**
          * If the display is on normal operation, if this is false,
@@ -329,7 +340,7 @@ typedef union st7789v_display_status_t
          */
         st7789v_pixel_format_t          pixel_format                : 3;
 
-        byte                                                     : 2;
+        byte                                                        : 2;
 
         /**
          * If the display memory is being used from right to left
@@ -472,14 +483,14 @@ typedef union st7789v_interface_pixel_format_t {
     byte raw_value;
 
     struct {
-        byte                                         : 1;
+        byte                                            : 1;
 
         /**
          * How many colors the display is using to show the image
          */
         st7789v_rgb_interface_format_t  rgb_format      : 3;
 
-        byte                                         : 1;
+        byte                                            : 1;
 
         /**
          * The pixel format being used by the display (or depth)
@@ -624,6 +635,14 @@ typedef union st7789v_adaptive_brightness_color_enhancement_t {
 external error_t st7789v_init(void);
 
 /**
+ * Check if the display is connected
+ * 
+ * RETURN VALUE
+ * - true if the display is plugged and fully connected
+ */
+external error_t st7789v_is_plugged(void);
+
+/**
  * Begin a communication with the display (set CS to LOW)
  * 
  * RETURN VALUE
@@ -710,6 +729,36 @@ external error_t st7789v_dma_write(
     enum dma_channel_transfer_size data_size,
     semaphore_t *completion_signal,
     bool close_comm_when_finish
+);
+
+/**
+ * This function tries to write asynchronously into the display, this is useful to large buffers,
+ * like pixels, etc, but with extra parameter(s).
+ *
+ * PARAMETERS
+ * - buffer: the buffer to write
+ * - size: the size of the buffer to write
+ * - data_size: the size of the buffer data, use DMA_SIZE_8 for bytes
+ * - completion_signal: the semaphore to be released when the transaction finishes
+ * - close_comm_when_finish: if the dma irq handler should call `st7789v_end_comm(void)` when finishes writing
+ * - increment_buffer_index: if you want to increment the read pointer after writing the value,
+ *                           useful if you want to fill with a single value.
+ *
+ * NOTES
+ * - the `data_size` and `size` parameters are related, if you put DMA_SIZE_16, you'll need to provide
+ *   the size of the buffer (`size`) into 16-bit values, and not the byte size of the buffer.
+ * 
+ * RETURN VALUE
+ * - ENODISPLAYCONNECTED: if the display is not plugged in, or unavailable
+ * - EDISPLAYBUSY: if the display is busy with an DMA or reset operation
+ */
+external error_t st7789v_dma_write_ex(
+    byte *buffer,
+    size_t size,
+    enum dma_channel_transfer_size data_size,
+    semaphore_t *completion_signal,
+    bool close_comm_when_finish,
+    bool increment_buffer_index
 );
 
 /**
@@ -1038,6 +1087,33 @@ external error_t st7789v_display_memory_write_async(
     size_t size,
     semaphore_t *completion_signal,
     bool continue_writing
+);
+
+/**
+ * Write into the display memory asynchronously using DMA operations with extra parameters
+ *
+ * PARAMETERS
+ * - buffer: the buffer to write into the display's memory
+ * - size: the size of the buffer
+ * - completion_signal: the semaphore to release when the memory finishes writing
+ * - continue_writing: if you want to continue an old write operation (using COMMAND_MEMORY_WRITE_CONTINUE)
+ * - increment_buffer_index: if you want to increment the read pointer after writing the value,
+ *                           useful if you want to fill with a single value.
+ *
+ * NOTES
+ * - the DMA operation is called with `close_comm_when_finish` as true, so the communication will
+ *   end as soon the operation finishes. DO NOT TRY SENDING COMMANDS WHILE THIS OPERATION IS ONGOING.
+ *
+ * RETURN VALUE
+ * - ENODISPLAYCONNECTED: if the display is not plugged in, or unavailable
+ * - EDISPLAYBUSY: if the display is busy with an DMA or reset operation
+ */
+external error_t st7789v_display_memory_write_async_ex(
+    byte *buffer,
+    size_t size,
+    semaphore_t *completion_signal,
+    bool continue_writing,
+    bool increment_buffer_index
 );
 
 /**

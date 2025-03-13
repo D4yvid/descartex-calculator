@@ -1,8 +1,9 @@
 #ifndef UTIL_LOG_H
 #define UTIL_LOG_H
 
-#include <stdio.h>
 #pragma once
+
+#include <stdio.h>
 
 #define LOG(prefix, ...) __log_impl(prefix, __FUNCTION__, __FILE_NAME__, __LINE__, __VA_ARGS__)
 #define LOGV(prefix, ...) __logv_impl(prefix, __FUNCTION__, __FILE_NAME__, __LINE__, __VA_ARGS__)

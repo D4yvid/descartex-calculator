@@ -169,6 +169,11 @@ void st7789v_end_command() {
     gpio_put(ST7789V_PIN_DC, 1);
 }
 
+force_inline
+error_t st7789v_is_plugged(void) {
+    return is_plugged;
+}
+
 error_t st7789v_write_sync(byte *buffer, size_t size) {
     if (!is_plugged) {
         return -ENODISPLAYCONNECTED;
@@ -182,6 +187,7 @@ error_t st7789v_write_sync(byte *buffer, size_t size) {
     mutex_enter_blocking(&busy_lock);
 
     spi_set_baudrate(serial, ST7789V_WRITING_BAUDRATE);
+
     spi_write_blocking(serial, buffer, size);
 
     mutex_exit(&busy_lock);
@@ -201,6 +207,7 @@ error_t st7789v_read_sync(byte *buffer, size_t size) {
     mutex_enter_blocking(&busy_lock);
 
     spi_set_baudrate(serial, ST7789V_READING_BAUDRATE);
+
     spi_read_blocking(serial, 0xFF, buffer, size);
 
     mutex_exit(&busy_lock);
@@ -215,6 +222,24 @@ error_t st7789v_dma_write(
     semaphore_t *completion_signal,
     bool close_comm_when_finish
 ) {
+    return st7789v_dma_write_ex(
+        buffer,
+        size,
+        data_size,
+        completion_signal,
+        close_comm_when_finish,
+        true
+    );
+}
+
+error_t st7789v_dma_write_ex(
+    byte *buffer,
+    size_t size,
+    enum dma_channel_transfer_size data_size,
+    semaphore_t *completion_signal,
+    bool close_comm_when_finish,
+    bool increment_buffer_index
+) {
     if (!is_plugged) {
         return -ENODISPLAYCONNECTED;
     }
@@ -226,7 +251,7 @@ error_t st7789v_dma_write(
     dma_channel_config config = dma_channel_get_default_config(dma_data_channel);
 
     channel_config_set_write_increment(&config, false);
-    channel_config_set_read_increment(&config, true);
+    channel_config_set_read_increment(&config, increment_buffer_index);
 
     channel_config_set_transfer_data_size(&config, data_size);
 
@@ -403,6 +428,7 @@ error_t st7789v_send_command_sync(
     st7789v_end_command();
 
     if (parameters != NULL && parameter_count > 0) {
+        // Just send 8 bits each time
         st7789v_write_sync(parameters, parameter_count);
     }
 
@@ -654,7 +680,7 @@ byte st7789v_display_read_signal_mode(st7789v_signal_mode_t *signal_mode) {
     return raw_value;
 }
 
-byte st7789v_display_read_self_diagnostic(st7789v_display_self_diagnostic_t *diag) {
+byte st7789v_display_read_self_diagnostic(st7789v_self_diagnostic_t *diag) {
     if (!is_plugged) {
         return -ENODISPLAYCONNECTED;
     }
@@ -939,11 +965,28 @@ error_t st7789v_display_memory_write_sync(byte *buffer, size_t size, bool contin
     return 0x00;
 }
 
+force_inline
 error_t st7789v_display_memory_write_async(
     byte *buffer,
     size_t size,
     semaphore_t *completion_signal,
     bool continue_writing
+) {
+    return st7789v_display_memory_write_async_ex(
+        /*                 buffer: */buffer,
+        /*                   size: */ size,
+        /*      completion_signal: */ completion_signal,
+        /*       continue_writing: */continue_writing,
+        /* increment_buffer_index: */true
+    );
+}
+
+error_t st7789v_display_memory_write_async_ex(
+    byte *buffer,
+    size_t size,
+    semaphore_t *completion_signal,
+    bool continue_writing,
+    bool increment_buffer_index
 ) {
     if (!is_plugged) {
         return -ENODISPLAYCONNECTED;
@@ -961,12 +1004,13 @@ error_t st7789v_display_memory_write_async(
         /* parameter_count: */ 0x00
     );
 
-    st7789v_dma_write(
+    st7789v_dma_write_ex(
         /*                 buffer: */ buffer,
         /*                   size: */ size,
         /*              data_size: */ DMA_SIZE_8,
         /*      completion_signal: */ completion_signal,
-        /* close_comm_when_finish: */ true
+        /* close_comm_when_finish: */ true,
+        /* increment_buffer_index: */ increment_buffer_index
     );
 
     return 0x00;
@@ -1466,7 +1510,7 @@ byte st7789v_display_read_id_1(void) {
     return raw_value;
 }
 
-external byte st7789v_display_read_id_2(void) {
+byte st7789v_display_read_id_2(void) {
     if (!is_plugged) {
         return -ENODISPLAYCONNECTED;
     }
@@ -1492,7 +1536,7 @@ external byte st7789v_display_read_id_2(void) {
     return raw_value;
 }
 
-external byte st7789v_display_read_id_3(void) {
+byte st7789v_display_read_id_3(void) {
     if (!is_plugged) {
         return -ENODISPLAYCONNECTED;
     }
@@ -1506,10 +1550,10 @@ external byte st7789v_display_read_id_3(void) {
     st7789v_begin_comm();
 
     st7789v_send_command_sync(
-        /*         command: */ COMMAND_READ_ID_3,
-        /*      parameters: */ NULL,
-        /* parameter_count: */ 0x00
-    );
+            /*         command: */ COMMAND_READ_ID_3,
+            /*      parameters: */ NULL,
+            /* parameter_count: */ 0x00
+            );
 
     st7789v_read_sync(&raw_value, 0x01);
 
